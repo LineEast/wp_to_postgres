@@ -6,8 +6,9 @@ create table posts (
 
 	post date,
 	content text,
+	content_short text,
 	title varchar(200),
-	img varchar(200),
+	img varchar(255),
 	
 	tags_id jsonb default '[]'
 )

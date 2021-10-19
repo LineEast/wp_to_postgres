@@ -19,6 +19,16 @@ type Post struct {
 	Tags_id []uint `json:"tags_id"`
 }
 
+type Tags struct {
+	TagId uint `json:"id"`
+	PostId uint `json:"PostId"`
+	TagPromId uint
+	TagsPrev string
+	Name string
+	Slug string
+	Count uint
+}
+
 func startBase() (db_mySql *sql.DB, db_postgres *sql.DB){
 	db_mySql, err := sql.Open("mysql", "root:1337228@tcp(127.0.0.1:3306)/nuancesprog")
 	if err != nil {
@@ -73,7 +83,55 @@ func img(db_mySql *sql.DB, db_postgres *sql.DB) {
 }
 
 func tags(db_mySql *sql.DB, db_postgres *sql.DB) {
-	
+	postgres_select, err := db_postgres.Query("select old_id from posts")
+	if err != nil {
+		panic(err)
+	}
+	for postgres_select.Next() {
+		var tags Tags
+		err = postgres_select.Scan(&tags.PostId)
+		if err != nil {
+			panic(err)
+		}
+
+		tag_prom_id, err := db_mySql.Query("select term_taxonomy_id from wp_term_relationships where object_id=$1", tags.PostId)
+		if err != nil {
+			panic(err)
+		}
+		for tag_prom_id.Next() {
+			err = tag_prom_id.Scan(&tags.TagPromId)
+			if err != nil {
+				panic(err)
+			}
+
+			tags_id, err := db_mySql.Query("select term_id from wp_term_taxonomy where term_taxonomy_id=$1 and taxonomy != 'yst_prominent_words' and taxonomy != 'amp_validation_error';", tags.TagPromId)
+			if err != nil {
+				panic(err)
+			}
+
+			for tags_id.Next() {
+				err = tags_id.Scan(&tags.TagId)
+				if err != nil {
+					panic(err)
+				}
+
+				// post_postgres_tags, err := db_postgres.Query("select tags from posts where old_id = $1;", tags.PostId)
+				// if err != nil {
+				// 	panic(err)
+				// }
+
+				// err = post_postgres_tags.Scan(&tags.TagsPrev)		
+				// if err != nil {
+				// 	panic(err)
+				// }
+				
+				// _, err = db_postgres.Exec("update posts set tags = $1 where old_id = $2")
+			}
+			tags_id.Close()
+		}
+		tag_prom_id.Close()
+	}
+	postgres_select.Close()
 }
 
 func main() {
@@ -89,3 +147,4 @@ func main() {
 	db_postgres.Close()
 	db_mySql.Close()
 }
+

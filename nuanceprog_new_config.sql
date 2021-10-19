@@ -1,15 +1,15 @@
-create table post (
+create table posts (
 	id serial primary key,
 	old_id integer,
 
-	authtor integer,
+	author integer,
 
 	post date,
 	content text,
 	title varchar(200),
 	img varchar(200),
 	
-	tags_id json {}
+	tags_id jsonb default '[]'
 )
 
 create table tags (

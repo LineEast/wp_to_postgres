@@ -24,9 +24,10 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	db_postgres, err := sql.Open("postgres", "user=line_east password=1337228 dbname=nuncesprog_new sslmod=enable")
+
+	db_postgres, err := sql.Open("postgres", "user=line_east dbname=line_east sslmode=disable") //("postgres", "user=line_east password=1337228 dbname=line_east sslmod=disable")
 	if err != nil {
-		panic(err)
+		fmt.Println(err)
 	}
 
 	//Обращение в исходник
@@ -41,22 +42,11 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		/*
-		//startingComment := "<!--"
-		//endingComment := "-->"
-		//post.Content = removeComments(post.Content)
-
-		*/
-		psql_select, err := db_postgres.Query(fmt.Sprintf("insert into posts (old_id, author, date, content, title) values = ('%d', '%d', '%s', '%s', '%s');"), post.Id, post.Author, post.Date, post.Content, post.Title)
+		_, err := db_postgres.Exec("insert into posts (old_id, author, post, content, title) values ($1, $2, $3, $4, $5);", post.Id, post.Author, post.Date, post.Content, post.Title)
 		if err != nil {
 			panic(err)
 		}
-
-
-		psql_select.Close()
-		//fmt.Println(fmt.Sprintf("old_id: %d, author_id: %d, date: %s", post.Id, post.Author, post.Date))
 	}
-
 	//Закрытие всех обращений к базе
 	mysql_select.Close()
 

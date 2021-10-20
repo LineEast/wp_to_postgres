@@ -123,21 +123,18 @@ func tags(db_mySql *sql.DB, db_postgres *sql.DB) {
 				}
 
 				for wp_terms.Next() {
-					fmt.Println("start")
 					err = wp_terms.Scan(&tags.Name, &tags.Slug)
 					if err != nil {
 						panic(err)
 					}
-					fmt.Println("1")
 					err = db_postgres.QueryRow("insert into tags (name, slug, count) values ($1, $2, $3) returning id;", tags.Name, tags.Slug, tags.Count).Scan(&tags.Tags_prev2)
 					if err != nil {
 						panic(err)
 					}
+
 					res := uint8(tags.Tags_prev2)
 					tags.Tags_prev = append(tags.Tags_prev, res)
-					fmt.Println("2")
 					db_postgres.QueryRow("update posts set tags_id = $1 where old_id = $2", tags.Tags_prev, tags.Post_id)
-					fmt.Println("end")
 				}
 				wp_terms.Close()
 			}

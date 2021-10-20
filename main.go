@@ -9,27 +9,28 @@ import (
 )
 
 type Post struct {
-	Id uint `json:"id"`
-	Author uint `json:"author"`
-	Date string `json:"date"`
-	Content string `json:"content"`
-	Content_short string `json:"Content_short"`
-	Title string `json:"title"`
-	Img string `json:"img"`
-	Tags_id []uint `json:"tags_id"`
+	Id					uint	`json:"id"`
+	Author				uint 	`json:"author"`
+	Date 				string 	`json:"date"`
+	Content 			string 	`json:"content"`
+	Content_short 		string 	`json:"Content_short"`
+	Title 				string 	`json:"title"`
+	Img 				string 	`json:"img"`
+	Tags_id 			[]uint 	`json:"tags_id"`
 }
 
 type Tags struct {
-	TagId uint `json:"id"`
-	PostId uint `json:"PostId"`
-	TagPromId uint
-	TagsPrev string
-	Name string
-	Slug string
-	Count uint
+	Tag_id 				uint 	`json:"id"`
+	Post_id 			uint 	`json:"post_id"`
+	Term_taxonomy_id 	uint
+	Tags_prev 			[]uint8	`json:"tags_prev"`
+	Tags_prev2 			uint	
+	Name 				string
+	Slug 				string
+	Count 				uint
 }
 
-func startBase() (db_mySql *sql.DB, db_postgres *sql.DB){
+func start_base() (db_mySql *sql.DB, db_postgres *sql.DB){
 	db_mySql, err := sql.Open("mysql", "root:1337228@tcp(127.0.0.1:3306)/nuancesprog")
 	if err != nil {
 		panic(err)
@@ -41,7 +42,7 @@ func startBase() (db_mySql *sql.DB, db_postgres *sql.DB){
 	return
 }
 
-func allInfo(db_mySql *sql.DB, db_postgres *sql.DB) {
+func all_info(db_mySql *sql.DB, db_postgres *sql.DB) {
 	mysql_select, err := db_mySql.Query("select id, post_author, post_date, post_content, post_excerpt, post_title from wp_posts where post_status = 'publish' and ping_status = 'open' and post_type != 'revision';")
 	if err != nil {
 		panic(err)
@@ -83,67 +84,80 @@ func img(db_mySql *sql.DB, db_postgres *sql.DB) {
 }
 
 func tags(db_mySql *sql.DB, db_postgres *sql.DB) {
-	postgres_select, err := db_postgres.Query("select old_id from posts")
+	posts_id, err := db_postgres.Query("select old_id, tags_id from posts")
 	if err != nil {
 		panic(err)
 	}
-	for postgres_select.Next() {
+	for posts_id.Next() {
 		var tags Tags
-		err = postgres_select.Scan(&tags.PostId)
+		err = posts_id.Scan(&tags.Post_id, &tags.Tags_prev)
 		if err != nil {
 			panic(err)
 		}
 
-		tag_prom_id, err := db_mySql.Query("select term_taxonomy_id from wp_term_relationships where object_id=$1", tags.PostId)
+		wp_term_relationships, err := db_mySql.Query("select term_taxonomy_id from wp_term_relationships where object_id = ?", tags.Post_id)
 		if err != nil {
 			panic(err)
 		}
-		for tag_prom_id.Next() {
-			err = tag_prom_id.Scan(&tags.TagPromId)
+		
+		for wp_term_relationships.Next() {
+			err = wp_term_relationships.Scan(&tags.Term_taxonomy_id)
 			if err != nil {
 				panic(err)
 			}
 
-			tags_id, err := db_mySql.Query("select term_id from wp_term_taxonomy where term_taxonomy_id=$1 and taxonomy != 'yst_prominent_words' and taxonomy != 'amp_validation_error';", tags.TagPromId)
+			wp_term_taxonomy, err := db_mySql.Query("select term_id, count from wp_term_taxonomy where term_taxonomy_id = ? and taxonomy != 'yst_prominent_words' and taxonomy != 'amp_validation_error';", tags.Term_taxonomy_id)
 			if err != nil {
 				panic(err)
 			}
 
-			for tags_id.Next() {
-				err = tags_id.Scan(&tags.TagId)
+			for wp_term_taxonomy.Next() {
+				err = wp_term_taxonomy.Scan(&tags.Tag_id, &tags.Count)
 				if err != nil {
 					panic(err)
 				}
 
-				// post_postgres_tags, err := db_postgres.Query("select tags from posts where old_id = $1;", tags.PostId)
-				// if err != nil {
-				// 	panic(err)
-				// }
+				wp_terms, err := db_mySql.Query("select name, slug from wp_terms where term_id = ?;", tags.Tag_id)
+				if err != nil {
+					panic(err)
+				}
 
-				// err = post_postgres_tags.Scan(&tags.TagsPrev)		
-				// if err != nil {
-				// 	panic(err)
-				// }
-				
-				// _, err = db_postgres.Exec("update posts set tags = $1 where old_id = $2")
+				for wp_terms.Next() {
+					fmt.Println("start")
+					err = wp_terms.Scan(&tags.Name, &tags.Slug)
+					if err != nil {
+						panic(err)
+					}
+					fmt.Println("1")
+					err = db_postgres.QueryRow("insert into tags (name, slug, count) values ($1, $2, $3) returning id;", tags.Name, tags.Slug, tags.Count).Scan(&tags.Tags_prev2)
+					if err != nil {
+						panic(err)
+					}
+					res := uint8(tags.Tags_prev2)
+					tags.Tags_prev = append(tags.Tags_prev, res)
+					fmt.Println("2")
+					db_postgres.QueryRow("update posts set tags_id = $1 where old_id = $2", tags.Tags_prev, tags.Post_id)
+					fmt.Println("end")
+				}
+				wp_terms.Close()
 			}
-			tags_id.Close()
+			wp_term_taxonomy.Close()
 		}
-		tag_prom_id.Close()
+		wp_term_relationships.Close()
 	}
-	postgres_select.Close()
+	posts_id.Close()
 }
 
 func main() {
-	//Подключаем базы
-	db_mySql, db_postgres := startBase()
-	//Перенос основной инфы Post
-	allInfo(db_mySql, db_postgres)
-	//Все изображения
-	img(db_mySql, db_postgres)
-	//Все теги
+		//Подключаем базы
+	db_mySql, db_postgres := start_base()
+		//Перенос основной инфы Post
+	//all_info(db_mySql, db_postgres)
+		//Все изображения
+	//img(db_mySql, db_postgres)
+		//Все теги
 	tags(db_mySql, db_postgres)
-	//Закрытие всех обращений к базе
+		//Закрытие обращений к базе
 	db_postgres.Close()
 	db_mySql.Close()
 }

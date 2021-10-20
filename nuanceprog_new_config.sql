@@ -10,7 +10,7 @@ create table posts (
 	title varchar(200),
 	img varchar(255),
 	
-	tags_id jsonb default '[]'
+	tags_id int[] default '{}'
 )
 
 create table tags (

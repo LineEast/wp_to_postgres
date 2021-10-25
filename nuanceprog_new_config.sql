@@ -10,7 +10,7 @@ create table posts (
 	title varchar(200),
 	img varchar(255),
 	
-	tags_id int[]
+	tags_id int[] default '{}' 
 )
 
 create table tags (

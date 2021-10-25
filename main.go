@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
@@ -28,6 +29,8 @@ type Tags struct {
 	Slug 				string
 	Count 				uint
 	Taxonomy 			string
+
+	New_id				uint
 }
 
 func start_base() (db_mySql *sql.DB, db_postgres *sql.DB){
@@ -107,7 +110,10 @@ func tags(db_mySql *sql.DB, db_postgres *sql.DB) {
 
 					tags.Tags_prev = append(tags.Tags_prev, uint8(tags.Tags_prev2))
 
-					db_postgres.QueryRow("update posts set tags_id = $1 where old_id = $2", tags.Tags_prev, tags.Post_id)
+					err = db_postgres.QueryRow("update posts set tags_id = $1 where old_id = $2 returning id", tags.Tags_prev, tags.Post_id).Scan(&tags.New_id)
+					error_short(err)
+
+					fmt.Println(tags.New_id)
 				}
 			}
 		}
@@ -124,14 +130,25 @@ func error_short(err error) {
 
 func main() {
 		//Подключаем базы
+	fmt.Println("Start_base: Start")
 	db_mySql, db_postgres := start_base()
+	fmt.Println("Start_base: Done")
 		//Перенос основной инфы Post
-	all_info(db_mySql, db_postgres)
-		//Все изображения
-	img(db_mySql, db_postgres)
+	// fmt.Println("All_info: Start")
+	// all_info(db_mySql, db_postgres)
+	// fmt.Println("All_info: Done")
+	// 	//Все изображения
+	// fmt.Println("Img: Start")
+	// img(db_mySql, db_postgres)
+	// fmt.Println("Img: Done")
 		//Все теги
+	fmt.Println("Tags: Start")
 	tags(db_mySql, db_postgres)
+	fmt.Println("Tags: Done")
 		//Закрытие обращений к базе
 	db_postgres.Close()
+	fmt.Println("db_postgres: Closed")
 	db_mySql.Close()
+	fmt.Println("db_mySql: Closed")
+	fmt.Println("Prog: End")
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
@@ -81,21 +80,35 @@ func tags(db_mySql *sql.DB, db_postgres *sql.DB) {
 		error_short(err)
 
 		for wp_term_relationships.Next() {
+			count := 0
+
 			err = wp_term_relationships.Scan(&tags.Term_taxonomy_id)
 			error_short(err)
-			fmt.Println(tags.Term_taxonomy_id)
+			
 			err = db_mySql.QueryRow("select term_id, count, taxonomy from wp_term_taxonomy where term_taxonomy_id = ?;", tags.Term_taxonomy_id).Scan(&tags.Tag_id, &tags.Count, &tags.Taxonomy)
 			error_short(err)
-			if (tags.Taxonomy == "post_tag") {
+			if tags.Taxonomy == "post_tag" {
 				err = db_mySql.QueryRow("select name, slug from wp_terms where term_id = ?", tags.Tag_id).Scan(&tags.Name, &tags.Slug)
 				error_short(err)
 
-				err = db_postgres.QueryRow("insert into tags (name, slug, count) values ($1, $2, $3) returning id;", tags.Name, tags.Slug, tags.Count).Scan(&tags.Tags_prev2)
+				err := db_postgres.QueryRow("select count(*) from tags where name = $1", tags.Name).Scan(&count)
 				error_short(err)
 
-				tags.Tags_prev = append(tags.Tags_prev, uint8(tags.Tags_prev2))
+				if count == 0 {
+					err = db_postgres.QueryRow("insert into tags (name, slug, count) values ($1, $2, $3) returning id;", tags.Name, tags.Slug, tags.Count).Scan(&tags.Tags_prev2)
+					error_short(err)
 
-				db_postgres.QueryRow("update posts set tags_id = $1 where old_id = $2", tags.Tags_prev, tags.Post_id)
+					tags.Tags_prev = append(tags.Tags_prev, uint8(tags.Tags_prev2))
+
+					db_postgres.QueryRow("update posts set tags_id = $1 where old_id = $2", tags.Tags_prev, tags.Post_id)
+				} else {
+					err =  db_postgres.QueryRow("select id from tags where name = $1", tags.Name).Scan(&tags.Tags_prev2)
+					error_short(err)
+
+					tags.Tags_prev = append(tags.Tags_prev, uint8(tags.Tags_prev2))
+
+					db_postgres.QueryRow("update posts set tags_id = $1 where old_id = $2", tags.Tags_prev, tags.Post_id)
+				}
 			}
 		}
 		wp_term_relationships.Close()
@@ -108,68 +121,6 @@ func error_short(err error) {
 		panic(err)
 	}
 }
-
-// func tags(db_mySql *sql.DB, db_postgres *sql.DB) {
-// 	posts_id, err := db_postgres.Query("select old_id, tags_id from posts")
-// 	if err != nil {
-// 		panic(err)
-// 	}
-// 	for posts_id.Next() {
-// 		var tags Tags
-// 		err = posts_id.Scan(&tags.Post_id, &tags.Tags_prev)
-// 		if err != nil {
-// 			panic(err)
-// 		}
-
-// 		wp_term_relationships, err := db_mySql.Query("select term_taxonomy_id from wp_term_relationships where object_id = ?", tags.Post_id)
-// 		if err != nil {
-// 			panic(err)
-// 		}
-		
-// 		for wp_term_relationships.Next() {
-// 			err = wp_term_relationships.Scan(&tags.Term_taxonomy_id)
-// 			if err != nil {
-// 				panic(err)
-// 			}
-
-// 			wp_term_taxonomy, err := db_mySql.Query("select term_id, count from wp_term_taxonomy where term_taxonomy_id = ? and taxonomy != 'yst_prominent_words' and taxonomy != 'amp_validation_error';", tags.Term_taxonomy_id)
-// 			if err != nil {
-// 				panic(err)
-// 			}
-
-// 			for wp_term_taxonomy.Next() {
-// 				err = wp_term_taxonomy.Scan(&tags.Tag_id, &tags.Count)
-// 				if err != nil {
-// 					panic(err)
-// 				}
-
-// 				wp_terms, err := db_mySql.Query("select name, slug from wp_terms where term_id = ?;", tags.Tag_id)
-// 				if err != nil {
-// 					panic(err)
-// 				}
-
-// 				for wp_terms.Next() {
-// 					err = wp_terms.Scan(&tags.Name, &tags.Slug)
-// 					if err != nil {
-// 						panic(err)
-// 					}
-// 					err = db_postgres.QueryRow("insert into tags (name, slug, count) values ($1, $2, $3) returning id;", tags.Name, tags.Slug, tags.Count).Scan(&tags.Tags_prev2)
-// 					if err != nil {
-// 						panic(err)
-// 					}
-
-// 					res := uint8(tags.Tags_prev2)
-// 					tags.Tags_prev = append(tags.Tags_prev, res)
-// 					db_postgres.QueryRow("update posts set tags_id = $1 where old_id = $2", tags.Tags_prev, tags.Post_id)
-// 				}
-// 				wp_terms.Close()
-// 			}
-// 			wp_term_taxonomy.Close()
-// 		}
-// 		wp_term_relationships.Close()
-// 	}
-// 	posts_id.Close()
-// }
 
 func main() {
 		//Подключаем базы
@@ -184,4 +135,3 @@ func main() {
 	db_postgres.Close()
 	db_mySql.Close()
 }
-

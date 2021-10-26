@@ -17,5 +17,6 @@ create table tags (
 	id serial primary key,
 	name varchar(200),
 	slug varchar(200),
-	count integer
+	count integer,
+	taxonomy varchar(200)
 )

@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"context"
-	"fmt"
 
 	_ "github.com/go-sql-driver/mysql"
 
@@ -73,51 +72,84 @@ func img(db_mySql *sql.DB, db_postgres *pgxpool.Pool) {
 }
 
 func tags(db_mySql *sql.DB, db_postgres *pgxpool.Pool) {
-	post_id, err := db_postgres.Query(context.Background(), "select old_id, tags_id from posts;")
+	count := 0
+	
+	post_id, err := db_postgres.Query(context.Background(), "select old_id, tags_id from posts order by old_id;")
 	error_short(err)
 
 	for post_id.Next() {
 		var tags Tags
 		err = post_id.Scan(&tags.Post_id, &tags.Tags_prev)
 		error_short(err)
-
+		
 		wp_term_relationships, err := db_mySql.Query("select term_taxonomy_id from wp_term_relationships where object_id = ?;", tags.Post_id)
 		error_short(err)
 
 		for wp_term_relationships.Next() {
-			count := 0
+			count = 0
 
 			err = wp_term_relationships.Scan(&tags.Term_taxonomy_id)
 			error_short(err)
 			
-			err = db_mySql.QueryRow("select term_id, count, taxonomy from wp_term_taxonomy where term_taxonomy_id = ?;", tags.Term_taxonomy_id).Scan(&tags.Tag_id, &tags.Count, &tags.Taxonomy)
+			wp_term_taxonomy_select, err := db_mySql.Query("select term_id, count, taxonomy from wp_term_taxonomy where term_taxonomy_id = ?;", tags.Term_taxonomy_id)
 			error_short(err)
-			if (tags.Taxonomy == "post_tag" || tags.Taxonomy == "category") {
-				err = db_mySql.QueryRow("select name, slug from wp_terms where term_id = ?", tags.Tag_id).Scan(&tags.Name, &tags.Slug)
+			for wp_term_taxonomy_select.Next() {
+				err = wp_term_taxonomy_select.Scan(&tags.Tag_id, &tags.Count, &tags.Taxonomy)
 				error_short(err)
 
-				err := db_postgres.QueryRow(context.Background(), "select count(*) from tags where name = $1", tags.Name).Scan(&count)
-				error_short(err)
-
-				if count == 0 {
-					err = db_postgres.QueryRow(context.Background(), "insert into tags (name, slug, count, taxonomy) values ($1, $2, $3, $4) returning id;", tags.Name, tags.Slug, tags.Count, tags.Taxonomy).Scan(&tags.Tags_prev2)
+				if (tags.Taxonomy == "post_tag" || tags.Taxonomy == "category") {
+					select_wp_terms, err := db_mySql.Query("select name, slug from wp_terms where term_id = ?;", tags.Tag_id)
 					error_short(err)
+					for select_wp_terms.Next() {
+						err = select_wp_terms.Scan(&tags.Name, &tags.Slug)
+						error_short(err)
 
-					tags.Tags_prev = append(tags.Tags_prev, tags.Tags_prev2)
+						count = 0
+						tags_count, err := db_postgres.Query(context.Background(), "select count(*) from tags where name = $1;", tags.Name)
+						error_short(err)
 
-					db_postgres.QueryRow(context.Background(), "update posts set tags_id = $1 where old_id = $2", tags.Tags_prev, tags.Post_id)
-				} else {
-					err =  db_postgres.QueryRow(context.Background(), "select id from tags where name = $1", tags.Name).Scan(&tags.Tags_prev2)
-					error_short(err)
+						for tags_count.Next() {
+							err = tags_count.Scan(&count)
+							error_short(err)
 
-					tags.Tags_prev = append(tags.Tags_prev, tags.Tags_prev2)
+							if count == 0 {
+								tags_insert, err := db_postgres.Query(context.Background(), "insert into tags (name, slug, count, taxonomy) values ($1, $2, $3, $4) returning id;", tags.Name, tags.Slug, tags.Count, tags.Taxonomy)
+								error_short(err)
 
-					err = db_postgres.QueryRow(context.Background(), "update posts set tags_id = $1 where old_id = $2 returning id", tags.Tags_prev, tags.Post_id).Scan(&tags.New_id)
-					error_short(err)
+								for tags_insert.Next() {
+									err = tags_insert.Scan(&tags.Tags_prev2)
+									error_short(err)
 
-					fmt.Println(tags.New_id)
+									tags.Tags_prev = append(tags.Tags_prev, tags.Tags_prev2)
+									
+									update_posts, err := db_postgres.Query(context.Background(), "update posts set tags_id = $1 where old_id = $2;", tags.Tags_prev, tags.Post_id)
+									error_short(err)
+									update_posts.Close()
+								}
+								tags_insert.Close()
+
+							} else {
+								select_tags, err := db_postgres.Query(context.Background(), "select id from tags where name = $1;", tags.Name)
+								error_short(err)
+
+								for select_tags.Next() {
+									err = select_tags.Scan(&tags.Tags_prev2)
+									error_short(err)
+
+									tags.Tags_prev = append(tags.Tags_prev, tags.Tags_prev2)
+								}
+
+								update_posts, err := db_postgres.Query(context.Background(), "update posts set tags_id = $1 where old_id = $2", tags.Tags_prev, tags.Post_id)
+								error_short(err)
+								update_posts.Close()
+							}
+						}
+						tags_count.Close()
+					}
+					select_wp_terms.Close()
 				}
 			}
+			wp_term_taxonomy_select.Close()
 		}
 		wp_term_relationships.Close()
 	}
@@ -132,21 +164,13 @@ func error_short(err error) {
 
 func main() {
 		//Подключаем базы
-	fmt.Println("start_base: start")
 	db_mySql, db_postgres := start_base()
-	fmt.Println("start_base: end")
 		//Перенос основной инфы Post
-	// fmt.Println("all_info: start")
 	// all_info(db_mySql, db_postgres)
-	// fmt.Println("all_info: end")
 	//  	//Все изображения
-	// fmt.Println("img: start")
 	// img(db_mySql, db_postgres)
-	// fmt.Println("img: end")
 		//Все теги
-	fmt.Println("tags: start")
 	tags(db_mySql, db_postgres)
-	fmt.Println("tags: start")
 		//Закрытие обращений к базе
 	db_postgres.Close()
 	db_mySql.Close()

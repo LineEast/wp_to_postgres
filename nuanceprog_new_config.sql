@@ -4,7 +4,7 @@ create table posts (
 
 	author integer,
 
-	post date,
+	post timestamp,
 	content text,
 	content_short text,
 	title varchar(200),

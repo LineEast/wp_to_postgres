@@ -1,8 +1,11 @@
+//go:build old
+
 package main
 
 import (
-	"database/sql"
 	"context"
+	"database/sql"
+	"fmt"
 
 	_ "github.com/go-sql-driver/mysql"
 
@@ -10,50 +13,50 @@ import (
 )
 
 type Post struct {
-	Id					uint	`json:"id"`
-	Author				uint 	`json:"author"`
-	Date 				string 	`json:"date"`
-	Content 			string 	`json:"content"`
-	Content_short 		string 	`json:"Content_short"`
-	Title 				string 	`json:"title"`
-	Img 				string 	`json:"img"`
-	Tags_id 			[]uint 	`json:"tags_id"`
+	Id            uint   `json:"id"`
+	Author        uint   `json:"author"`
+	Date          string `json:"date"`
+	Content       string `json:"content"`
+	Content_short string `json:"Content_short"`
+	Title         string `json:"title"`
+	Img           string `json:"img"`
+	Tags_id       []uint `json:"tags_id"`
 }
 
 type Tags struct {
-	Tag_id 				uint 	`json:"id"`
-	Post_id 			uint 	`json:"post_id"`
-	Term_taxonomy_id 	uint
-	Tags_prev 			[]uint	`json:"tags_prev"`
-	Tags_prev2 			uint	
-	Name 				string
-	Slug 				string
-	Count 				uint
-	Taxonomy 			string
+	Tag_id           uint `json:"id"`
+	Post_id          uint `json:"post_id"`
+	Term_taxonomy_id uint
+	Tags_prev        []uint `json:"tags_prev"`
+	Tags_prev2       uint
+	Name             string
+	Slug             string
+	Count            uint
+	Taxonomy         string
 
-	New_id				uint
+	New_id uint
 }
 
-func start_base() (db_mySql *sql.DB, db_postgres *pgxpool.Pool){
-	db_mySql, err := sql.Open("mysql", "root:1337228@tcp(127.0.0.1:3306)/nuancesprog")
+func start_base() (db_mySql *sql.DB, db_postgres *pgxpool.Pool) {
+	db_mySql, err := sql.Open("mysql", "root:#commit@tcp(127.0.0.1:3306)/nuancesprog")
 	error_short(err)
-	db_postgres, err = pgxpool.Connect(context.Background(), "postgres://line_east@localhost:5432/line_east")
+	db_postgres, err = pgxpool.Connect(context.Background(), "postgres://postgres@localhost:5432/nuancesprog")
 	error_short(err)
 	return
 }
 
 func all_info(db_mySql *sql.DB, db_postgres *pgxpool.Pool) {
-	mysql_select, err := db_mySql.Query("select id, post_author, post_date, post_content, post_excerpt, post_title from wp_posts where post_status = 'publish' and ping_status = 'open' and post_type != 'revision';")
+	mysql_select, err := db_mySql.Query("select id, post_author, post_date, post_content, post_excerpt, post_title from wp_posts where post_status = 'publish' and ping_status = 'open' and post_type != 'revision' order by id;")
 	error_short(err)
 
 	for mysql_select.Next() {
 		var post Post
 		err = mysql_select.Scan(&post.Id, &post.Author, &post.Date, &post.Content, &post.Content_short, &post.Title)
 		error_short(err)
-		_, err := db_postgres.Exec(context.Background(), "insert into posts (old_id, author, post, content, Content_short, title) values ($1, $2, $3, $4, $5, $6)", post.Id, post.Author, post.Date, post.Content, post.Content_short, post.Title)
+		_, err := db_postgres.Exec(context.Background(), "insert into posts (old_id, author, date, content, Content_short, title) values ($1, $2, $3, $4, $5, $6)", post.Id, post.Author, post.Date, post.Content, post.Content_short, post.Title)
 		error_short(err)
+		fmt.Println(post.Date)
 	}
-
 	mysql_select.Close()
 }
 
@@ -73,7 +76,7 @@ func img(db_mySql *sql.DB, db_postgres *pgxpool.Pool) {
 
 func tags(db_mySql *sql.DB, db_postgres *pgxpool.Pool) {
 	count := 0
-	
+
 	post_id, err := db_postgres.Query(context.Background(), "select old_id, tags_id from posts order by old_id;")
 	error_short(err)
 
@@ -81,7 +84,7 @@ func tags(db_mySql *sql.DB, db_postgres *pgxpool.Pool) {
 		var tags Tags
 		err = post_id.Scan(&tags.Post_id, &tags.Tags_prev)
 		error_short(err)
-		
+
 		wp_term_relationships, err := db_mySql.Query("select term_taxonomy_id from wp_term_relationships where object_id = ?;", tags.Post_id)
 		error_short(err)
 
@@ -90,14 +93,14 @@ func tags(db_mySql *sql.DB, db_postgres *pgxpool.Pool) {
 
 			err = wp_term_relationships.Scan(&tags.Term_taxonomy_id)
 			error_short(err)
-			
+
 			wp_term_taxonomy_select, err := db_mySql.Query("select term_id, count, taxonomy from wp_term_taxonomy where term_taxonomy_id = ?;", tags.Term_taxonomy_id)
 			error_short(err)
 			for wp_term_taxonomy_select.Next() {
 				err = wp_term_taxonomy_select.Scan(&tags.Tag_id, &tags.Count, &tags.Taxonomy)
 				error_short(err)
 
-				if (tags.Taxonomy == "post_tag" || tags.Taxonomy == "category") {
+				if tags.Taxonomy == "post_tag" || tags.Taxonomy == "category" {
 					select_wp_terms, err := db_mySql.Query("select name, slug from wp_terms where term_id = ?;", tags.Tag_id)
 					error_short(err)
 					for select_wp_terms.Next() {
@@ -121,7 +124,7 @@ func tags(db_mySql *sql.DB, db_postgres *pgxpool.Pool) {
 									error_short(err)
 
 									tags.Tags_prev = append(tags.Tags_prev, tags.Tags_prev2)
-									
+
 									update_posts, err := db_postgres.Query(context.Background(), "update posts set tags_id = $1 where old_id = $2;", tags.Tags_prev, tags.Post_id)
 									error_short(err)
 									update_posts.Close()
@@ -163,15 +166,15 @@ func error_short(err error) {
 }
 
 func main() {
-		//Подключаем базы
+	//Подключаем базы
 	db_mySql, db_postgres := start_base()
-		//Перенос основной инфы Post
-	// all_info(db_mySql, db_postgres)
+	//Перенос основной инфы Post
+	all_info(db_mySql, db_postgres)
 	//  	//Все изображения
-	// img(db_mySql, db_postgres)
-		//Все теги
+	img(db_mySql, db_postgres)
+	//Все теги
 	tags(db_mySql, db_postgres)
-		//Закрытие обращений к базе
+	//Закрытие обращений к базе
 	db_postgres.Close()
 	db_mySql.Close()
 }

@@ -20,3 +20,36 @@ create table tags (
 	count integer,
 	taxonomy varchar(200)
 )
+
+
+
+
+create table posts (
+	id bigserial primary key,
+	old_id bigint,
+
+	author_id bigint,
+
+	title varchar(256),
+	image varchar(256),
+	date timestamp,
+	description text,
+	content text
+);
+
+create table tags (
+	id bigserial primary key,
+	name varchar(256),
+	alias varchar(256),
+	taxonomy varchar(256) check (taxonomy in ('post_tag', 'category'))
+);
+
+create table post_tags (
+    post_id bigint,
+    tag_id bigint,
+
+    primary key (post_id, tag_id),
+
+    foreign key (post_id) references posts (id),
+    foreign key (tag_id) references tags (id)
+);

@@ -61,12 +61,12 @@ func all_info(db_mySql *sql.DB, db_postgres *pgxpool.Pool) {
 }
 
 func img(db_mySql *sql.DB, db_postgres *pgxpool.Pool) {
-	mysql_select, err := db_mySql.Query("select post_parent, guid from wp_posts where post_type = 'attachment';")
+	mysql_select, err := db_mySql.Query("select wp_posts.guid as image from wp_postmeta left join wp_posts on wp_postmeta.meta_value = wp_posts.id where post_id = ? and meta_key = '_thumbnail_id';", post.Id)
 	error_short(err)
 
 	for mysql_select.Next() {
 		var post Post
-		err = mysql_select.Scan(&post.Id, &post.Img)
+		err = mysql_select.Scan(&post.Img)
 		error_short(err)
 		_, err := db_postgres.Exec(context.Background(), "update posts set img = $1 where old_id = $2;", post.Img, post.Id)
 		error_short(err)
@@ -144,6 +144,7 @@ func tags(db_mySql *sql.DB, db_postgres *pgxpool.Pool) {
 
 								update_posts, err := db_postgres.Query(context.Background(), "update posts set tags_id = $1 where old_id = $2", tags.Tags_prev, tags.Post_id)
 								error_short(err)
+								select_tags.Close()
 								update_posts.Close()
 							}
 						}

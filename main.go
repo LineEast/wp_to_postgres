@@ -5,160 +5,102 @@ package main
 import (
 	"context"
 	"database/sql"
-	"fmt"
+	"os"
 
 	_ "github.com/go-sql-driver/mysql"
-
 	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/joho/godotenv"
 )
 
-type Post struct {
-	OldID        uint   `json:"id"`
-	Author       uint   `json:"author"`
-	Date         string `json:"date"`
-	Content      string `json:"content"`
-	ContentShort string `json:"Content_short"`
-	Title        string `json:"title"`
-	Image        string `json:"img"`
-	TagsID       []uint `json:"tags_id"`
-}
+type (
+	Post struct {
+		ID 			 uint 	`json:"id"`
+		OldID        uint   `json:"oldId"`
+		Author       uint   `json:"author"`
+		Date         string `json:"date"`
+		Content      string `json:"content"`
+		ContentShort string `json:"ContentShort"`
+		Title        string `json:"title"`
+		Image        string `json:"image"`
+		TagsID       []uint `json:"tagsID"`
+	}
 
-type Tags struct {
-	TagID          uint `json:"id"`
-	PostID         uint `json:"post_id"`
-	TermTaxonomyID uint
-	TagsPrev       []uint `json:"tags_prev"`
-	TagsPrev2      uint
-	Name           string
-	Slug           string
-	Count          uint
-	Taxonomy       string
-
-	NewID uint
-}
+	Tag struct {
+		ID    		uint64 	`json:"id"`
+		Name  		string 	`json:"name"`
+		Alias 		string 	`json:"alias"`
+		Type  		string 	`json:"type"`
+	}
+)
 
 func startBase() (dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
-	dbMySql, err := sql.Open("mysql", "root:#commit@tcp(127.0.0.1:3306)/nuancesprog")
+	err := godotenv.Load()
 	errorShort(err)
-	dbPostgres, err = pgxpool.Connect(context.Background(), "postgres://postgres@localhost:5432/nuancesprog")
+
+	oldDatabaseDSN := os.Getenv("LINE_EAST_DATABASE_OLD")
+	newDatabaseDSN := os.Getenv("LINE_EAST_DATABASE_NEW")
+	dbMySql, err = sql.Open("mysql", oldDatabaseDSN)
+	errorShort(err)
+	dbPostgres, err = pgxpool.Connect(context.Background(), newDatabaseDSN)
 	errorShort(err)
 	return
 }
 
 func allInfo(dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
-	mysqlSelect, err := dbMySql.Query("select id, post_author, post_date, post_content, post_excerpt, post_title from wp_posts where post_status = 'publish' and ping_status = 'open' and post_type != 'revision' order by id;")
+	posts, err := dbMySql.Query("select id, post_author, post_title, post_date, post_content, post_excerpt from wp_posts where post_status = 'publish' and post_type = 'post' order by id;")
 	errorShort(err)
 
-	for mysqlSelect.Next() {
+	for posts.Next() {
 		var post Post
-		err = mysqlSelect.Scan(&post.OldID, &post.Author, &post.Date, &post.Content, &post.ContentShort, &post.Title)
-		errorShort(err)
-		_, err := dbPostgres.Exec(context.Background(), "insert into posts (old_id, author, date, content, Content_short, title) values ($1, $2, $3, $4, $5, $6)", post.OldID, post.Author, post.Date, post.Content, post.ContentShort, post.Title)
-		errorShort(err)
-		fmt.Println(post.Date)
-	}
-	mysqlSelect.Close()
-}
-
-func image(dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
-	post := Post{}
-	mysqlSelect, err := dbMySql.Query("select wp_posts.guid as image from wp_postmeta left join wp_posts on wp_postmeta.meta_value = wp_posts.id where post_id = ? and meta_key = '_thumbnail_id';", post.OldID)
-	errorShort(err)
-
-	for mysqlSelect.Next() {
-		post := Post{}
-		err = mysqlSelect.Scan(&post.Image)
-		errorShort(err)
-		_, err := dbPostgres.Exec(context.Background(), "update posts set img = $1 where old_id = $2;", post.Image, post.OldID)
-		errorShort(err)
-	}
-	mysqlSelect.Close()
-}
-
-func tags(dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
-	count := 0
-
-	postID, err := dbPostgres.Query(context.Background(), "select old_id, tags_id from posts order by old_id;")
-	errorShort(err)
-
-	for postID.Next() {
-		var tags Tags
-		err = postID.Scan(&tags.PostID, &tags.TagsPrev)
+		err = posts.Scan(&post.OldID, &post.Author, &post.Title, &post.Date, &post.Content, &post.ContentShort)
 		errorShort(err)
 
-		wpTermRelationships, err := dbMySql.Query("select term_taxonomy_id from wp_term_relationships where object_id = ?;", tags.PostID)
-		errorShort(err)
-
-		for wpTermRelationships.Next() {
-			count = 0
-
-			err = wpTermRelationships.Scan(&tags.TermTaxonomyID)
+		if post.ContentShort == "" {
+			metaValue, err := dbMySql.Query("select meta_value as description from wp_postmeta where meta_key = '_yoast_wpseo_metadesc' and post_id = ?;", post.OldID)
 			errorShort(err)
-
-			wpTermTaxonomySelect, err := dbMySql.Query("select term_id, count, taxonomy from wp_term_taxonomy where term_taxonomy_id = ?;", tags.TermTaxonomyID)
-			errorShort(err)
-			for wpTermTaxonomySelect.Next() {
-				err = wpTermTaxonomySelect.Scan(&tags.TagID, &tags.Count, &tags.Taxonomy)
+			if metaValue.Next() {
+				err = metaValue.Scan(&post.ContentShort)
 				errorShort(err)
-
-				if tags.Taxonomy == "post_tag" || tags.Taxonomy == "category" {
-					selectWpTerms, err := dbMySql.Query("select name, slug from wp_terms where term_id = ?;", tags.TagID)
-					errorShort(err)
-					for selectWpTerms.Next() {
-						err = selectWpTerms.Scan(&tags.Name, &tags.Slug)
-						errorShort(err)
-
-						count = 0
-						tagsCount, err := dbPostgres.Query(context.Background(), "select count(*) from tags where name = $1;", tags.Name)
-						errorShort(err)
-
-						for tagsCount.Next() {
-							err = tagsCount.Scan(&count)
-							errorShort(err)
-
-							if count == 0 {
-								tagsInsert, err := dbPostgres.Query(context.Background(), "insert into tags (name, slug, count, taxonomy) values ($1, $2, $3, $4) returning id;", tags.Name, tags.Slug, tags.Count, tags.Taxonomy)
-								errorShort(err)
-
-								for tagsInsert.Next() {
-									err = tagsInsert.Scan(&tags.TagsPrev2)
-									errorShort(err)
-
-									tags.TagsPrev = append(tags.TagsPrev, tags.TagsPrev2)
-
-									updatePosts, err := dbPostgres.Query(context.Background(), "update posts set tags_id = $1 where old_id = $2;", tags.TagsPrev, tags.PostID)
-									errorShort(err)
-									updatePosts.Close()
-								}
-								tagsInsert.Close()
-
-							} else {
-								selectTags, err := dbPostgres.Query(context.Background(), "select id from tags where name = $1;", tags.Name)
-								errorShort(err)
-
-								for selectTags.Next() {
-									err = selectTags.Scan(&tags.TagsPrev2)
-									errorShort(err)
-
-									tags.TagsPrev = append(tags.TagsPrev, tags.TagsPrev2)
-								}
-
-								updatePosts, err := dbPostgres.Query(context.Background(), "update posts set tags_id = $1 where old_id = $2", tags.TagsPrev, tags.PostID)
-								errorShort(err)
-								selectTags.Close()
-								updatePosts.Close()
-							}
-						}
-						tagsCount.Close()
-					}
-					selectWpTerms.Close()
-				}
 			}
-			wpTermTaxonomySelect.Close()
+			metaValue.Close()
 		}
-		wpTermRelationships.Close()
+
+		metaImage, err := dbMySql.Query("select wp_posts.guid as image from wp_postmeta left join wp_posts on wp_postmeta.meta_value = wp_posts.id where post_id = ? and meta_key = '_thumbnail_id';", post.OldID)
+		errorShort(err)
+		if metaImage.Next() {
+			err = metaImage.Scan(&post.Image)
+			errorShort(err)
+		}
+		metaImage.Close()
+
+		err = dbPostgres.QueryRow(context.Background(), "insert into posts (old_id, author_id, date, content, description, title, image) values ($1, $2, $3, $4, $5, $6, $7) returning id", post.OldID, post.Author, post.Date, post.Content, post.ContentShort, post.Title, post.Image).Scan(&post.ID)
+		errorShort(err)
+		
+		tagsTerm, err := dbMySql.Query("select name, slug, taxonomy from wp_terms left join wp_term_taxonomy on wp_terms.term_id = wp_term_taxonomy.term_id left join wp_term_relationships on wp_term_taxonomy.term_taxonomy_id = wp_term_relationships.term_taxonomy_id where object_id = ? and (taxonomy = 'category' or taxonomy = 'post_tag')", post.OldID)
+		errorShort(err)
+		for tagsTerm.Next() {
+			tag := Tag{}
+			err = tagsTerm.Scan(&tag.Name, &tag.Alias, &tag.Type)
+			errorShort(err)
+
+			count, err := dbPostgres.Query(context.Background(), "select id from tags where name = $1 and alias = $2;", tag.Name, tag.Alias)
+			errorShort(err)
+
+			if count.Next() {
+				err = count.Scan(&tag.ID)
+				errorShort(err)
+			} else {
+				err = dbPostgres.QueryRow(context.Background(), "insert into tags (name, alias, type) values ($1, $2, $3) returning id;", tag.Name, tag.Alias, tag.Type).Scan(&tag.ID)
+				errorShort(err)
+			}
+			count.Close()
+
+			_, err = dbPostgres.Exec(context.Background(), "insert into posts_tags (post_id, tag_id) values ($1, $2);", post.ID, tag.ID)
+			errorShort(err)
+		}
+		tagsTerm.Close()
 	}
-	postID.Close()
+	posts.Close()
 }
 
 func errorShort(err error) {
@@ -172,10 +114,6 @@ func main() {
 	dbMySql, dbPostgres := startBase()
 	//Перенос основной инфы Post
 	allInfo(dbMySql, dbPostgres)
-	//  	//Все изображения
-	image(dbMySql, dbPostgres)
-	//Все теги
-	tags(dbMySql, dbPostgres)
 	//Закрытие обращений к базе
 	dbPostgres.Close()
 	dbMySql.Close()

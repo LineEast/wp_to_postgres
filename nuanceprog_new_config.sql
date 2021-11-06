@@ -41,10 +41,10 @@ create table tags (
 	id bigserial primary key,
 	name varchar(256),
 	alias varchar(256),
-	taxonomy varchar(256) check (taxonomy in ('post_tag', 'category'))
+	type varchar(256) check (taxonomy in ('post_tag', 'category'))
 );
 
-create table post_tags (
+create table posts_tags (
     post_id bigint,
     tag_id bigint,
 

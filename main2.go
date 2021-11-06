@@ -37,19 +37,6 @@ type (
 	}
 )
 
-type Tags struct {
-	Tag_id           uint `json:"id"`
-	Post_id          uint `json:"post_id"`
-	Term_taxonomy_id uint
-	Tags_prev        []uint `json:"tags_prev"`
-	Tags_prev2       uint
-	Name             string
-	Slug             string
-	Count            uint
-	Taxonomy         string
-
-	New_id uint
-}
 
 func main() {
 	err := godotenv.Load()

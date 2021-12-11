@@ -23,7 +23,7 @@ create table tags (
 
 
 
-
+asdasd
 create table posts (
 	id bigserial primary key,
 	old_id bigint,

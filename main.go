@@ -44,14 +44,33 @@ func startBase() (dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
 	return
 }
 
+func delComment(post string) (content2 string) {
+	//(<!--)(.{0,2})(wp:)(.{4,32})(-->)
+	i := 0
+	for post {
+		if post[i] == '<' && post[i+1] == '!' && post[i+2] == '-' && post[i+3] == '-' {
+			d := i
+			for post[d] != '>'{
+				post[d] = ""
+				d++
+			}
+		i++
+
+	}
+
+	return post
+}
+
 func allInfo(dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
 	posts, err := dbMySql.Query("select id, post_author, post_title, post_date, post_content, post_excerpt from wp_posts where post_status = 'publish' and post_type = 'post' order by id;")
 	errorShort(err)
 
 	for posts.Next() {
-		var post Post
+		post := new(Post)
 		err = posts.Scan(&post.OldID, &post.Author, &post.Title, &post.Date, &post.Content, &post.ContentShort)
 		errorShort(err)
+
+		post.Content = delComment(post.Content)
 
 		if post.ContentShort == "" {
 			metaValue, err := dbMySql.Query("select meta_value as description from wp_postmeta where meta_key = '_yoast_wpseo_metadesc' and post_id = ?;", post.OldID)
@@ -71,7 +90,11 @@ func allInfo(dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
 		}
 		metaImage.Close()
 
-		err = dbPostgres.QueryRow(context.Background(), "insert into posts (old_id, author_id, date, content, description, title, image) values ($1, $2, $3, $4, $5, $6, $7) returning id", post.OldID, post.Author, post.Date, post.Content, post.ContentShort, post.Title, post.Image).Scan(&post.ID)
+		err = dbPostgres.QueryRow(
+			context.Background(),
+			"insert into posts (old_id, author_id, date, content, description, title, image) values ($1, $2, $3, $4, $5, $6, $7) returning id",
+			post.OldID, post.Author, post.Date, post.Content, post.ContentShort, post.Title, post.Image,
+		).Scan(&post.ID)
 		errorShort(err)
 		
 		tagsTerm, err := dbMySql.Query("select name, slug, taxonomy from wp_terms left join wp_term_taxonomy on wp_terms.term_id = wp_term_taxonomy.term_id left join wp_term_relationships on wp_term_taxonomy.term_taxonomy_id = wp_term_relationships.term_taxonomy_id where object_id = ? and (taxonomy = 'category' or taxonomy = 'post_tag')", post.OldID)

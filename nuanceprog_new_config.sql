@@ -21,7 +21,7 @@ create table tags (
 	taxonomy varchar(200)
 )
 
-
+test
 
 
 create table posts (

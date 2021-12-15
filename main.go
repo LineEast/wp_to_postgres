@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"os"
+	"regexp"
 
-	_ "github.com/go-sql-driver/mysql"
+	_"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/joho/godotenv"
+	"github.com/valyala/bytebufferpool"
 )
 
 type (
@@ -44,21 +46,47 @@ func startBase() (dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
 	return
 }
 
-func delComment(post string) (content2 string) {
-	//(<!--)(.{0,2})(wp:)(.{4,32})(-->)
-	i := 0
-	for post {
-		if post[i] == '<' && post[i+1] == '!' && post[i+2] == '-' && post[i+3] == '-' {
-			d := i
-			for post[d] != '>'{
-				post[d] = ""
-				d++
-			}
-		i++
+var (
+	re = regexp.MustCompile("(<!--)(.{0,2})(wp:)(.{4,32})(-->)")
+	reg = regexp.MustCompile("(\n)")
+)
 
+func delComments(post string) (content string) {
+	bb := bytebufferpool.Get()
+
+	indexes := re.FindAllStringIndex(post, -1)
+
+	start, end := 0, 0
+
+	for i := range indexes {
+		start = indexes[i][0]
+		bb.WriteString(post[end:start])
+		end = indexes[i][1]
 	}
 
-	return post
+	content = bb.String()
+	bytebufferpool.Put(bb)
+
+	return
+}
+
+func delStrings (post string) (content string) {
+	bb := bytebufferpool.Get()
+
+	indexes := reg.FindAllStringIndex(post, -1)
+
+	start, end := 0, 0
+
+	for i := range indexes {
+		start = indexes[i][0]
+		bb.WriteString(post[end:start])
+		end = indexes[i][1]
+	}
+
+	content = bb.String()
+	bytebufferpool.Put(bb)
+
+	return
 }
 
 func allInfo(dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
@@ -70,7 +98,7 @@ func allInfo(dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
 		err = posts.Scan(&post.OldID, &post.Author, &post.Title, &post.Date, &post.Content, &post.ContentShort)
 		errorShort(err)
 
-		post.Content = delComment(post.Content)
+		//post.Content = delComment(post.Content)
 
 		if post.ContentShort == "" {
 			metaValue, err := dbMySql.Query("select meta_value as description from wp_postmeta where meta_key = '_yoast_wpseo_metadesc' and post_id = ?;", post.OldID)

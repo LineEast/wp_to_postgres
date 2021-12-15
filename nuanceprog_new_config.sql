@@ -21,9 +21,6 @@ create table tags (
 	taxonomy varchar(200)
 )
 
-
-
-asdasd
 create table posts (
 	id bigserial primary key,
 	old_id bigint,

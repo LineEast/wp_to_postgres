@@ -3,10 +3,11 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"regexp"
 
-	_"github.com/go-sql-driver/mysql"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/valyala/bytebufferpool"
@@ -23,6 +24,8 @@ type (
 		Title        string `json:"title"`
 		Image        string `json:"image"`
 		TagsID       []uint `json:"tagsID"`
+
+		Views uint `json:"PostViewsCount"`
 	}
 
 	Tag struct {
@@ -33,23 +36,23 @@ type (
 	}
 )
 
+var (
+	re = regexp.MustCompile("(<!--)(.{0,2})(wp:)(.{4,32})(-->)")
+	reg = regexp.MustCompile("(\n)")
+)
+
 func startBase() (dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
 	err := godotenv.Load()
 	errorShort(err)
 
-	oldDatabaseDSN := os.Getenv("LINE_EAST_DATABASE_OLD")
-	newDatabaseDSN := os.Getenv("LINE_EAST_DATABASE_NEW")
+	oldDatabaseDSN := os.Getenv("OLD_DB")
+	newDatabaseDSN := os.Getenv("PSQL")
 	dbMySql, err = sql.Open("mysql", oldDatabaseDSN)
 	errorShort(err)
 	dbPostgres, err = pgxpool.Connect(context.Background(), newDatabaseDSN)
 	errorShort(err)
 	return
 }
-
-var (
-	re = regexp.MustCompile("(<!--)(.{0,2})(wp:)(.{4,32})(-->)")
-	reg = regexp.MustCompile("(\n)")
-)
 
 func delComments(post string) (content string) {
 	bb := bytebufferpool.Get()
@@ -70,7 +73,7 @@ func delComments(post string) (content string) {
 	return
 }
 
-func delStrings (post string) (content string) {
+func delStrings(post string) (content string) {
 	bb := bytebufferpool.Get()
 
 	indexes := reg.FindAllStringIndex(post, -1)
@@ -89,6 +92,12 @@ func delStrings (post string) (content string) {
 	return
 }
 
+func oneStringSolutionByCmetallo(s string) (res string) {
+	res = re.ReplaceAllString(s, "")
+	res = reg.ReplaceAllString(res, "")
+	return
+}
+
 func allInfo(dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
 	posts, err := dbMySql.Query("select id, post_author, post_title, post_date, post_content, post_excerpt from wp_posts where post_status = 'publish' and post_type = 'post' order by id;")
 	errorShort(err)
@@ -97,8 +106,7 @@ func allInfo(dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
 		post := new(Post)
 		err = posts.Scan(&post.OldID, &post.Author, &post.Title, &post.Date, &post.Content, &post.ContentShort)
 		errorShort(err)
-
-		//post.Content = delComment(post.Content)
+		post.Content = oneStringSolutionByCmetallo(post.Content)
 
 		if post.ContentShort == "" {
 			metaValue, err := dbMySql.Query("select meta_value as description from wp_postmeta where meta_key = '_yoast_wpseo_metadesc' and post_id = ?;", post.OldID)
@@ -118,11 +126,12 @@ func allInfo(dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
 		}
 		metaImage.Close()
 
-		err = dbPostgres.QueryRow(
-			context.Background(),
-			"insert into posts (old_id, author_id, date, content, description, title, image) values ($1, $2, $3, $4, $5, $6, $7) returning id",
-			post.OldID, post.Author, post.Date, post.Content, post.ContentShort, post.Title, post.Image,
-		).Scan(&post.ID)
+		views, err := dbMySql.Query("select meta_value from wp_postmeta where meta_key = 'post_views_count' and post_id = ?", post.ID)
+		if views.Next() {
+			views.Scan(&post.Views)
+		}
+
+		err = dbPostgres.QueryRow(context.Background(), "insert into posts (old_id, author_id, date, content, description, title, image, views) values ($1, $2, $3, $4, $5, $6, $7, $8) returning id", post.OldID, post.Author, post.Date, post.Content, post.ContentShort, post.Title, post.Image, post.Views).Scan(&post.ID)
 		errorShort(err)
 		
 		tagsTerm, err := dbMySql.Query("select name, slug, taxonomy from wp_terms left join wp_term_taxonomy on wp_terms.term_id = wp_term_taxonomy.term_id left join wp_term_relationships on wp_term_taxonomy.term_taxonomy_id = wp_term_relationships.term_taxonomy_id where object_id = ? and (taxonomy = 'category' or taxonomy = 'post_tag')", post.OldID)
@@ -147,7 +156,10 @@ func allInfo(dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
 			_, err = dbPostgres.Exec(context.Background(), "insert into posts_tags (post_id, tag_id) values ($1, $2);", post.ID, tag.ID)
 			errorShort(err)
 		}
+		views.Close()
 		tagsTerm.Close()
+		
+		fmt.Println(post.ID, post.OldID)
 	}
 	posts.Close()
 }

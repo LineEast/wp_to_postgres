@@ -31,14 +31,16 @@ create table posts (
 	image varchar(256),
 	date timestamp,
 	description text,
-	content text
+	content text,
+
+	views bigint
 );
 
 create table tags (
 	id bigserial primary key,
 	name varchar(256),
 	alias varchar(256),
-	type varchar(256) check (taxonomy in ('post_tag', 'category'))
+	type varchar(256)
 );
 
 create table posts_tags (
@@ -50,3 +52,7 @@ create table posts_tags (
     foreign key (post_id) references posts (id),
     foreign key (tag_id) references tags (id)
 );
+
+drop table posts_tags;
+drop table tags;
+drop table posts;

@@ -1,4 +1,4 @@
-module github.com/LineEast/go_base
+module wp_to_postgres
 
 go 1.17
 
@@ -6,7 +6,6 @@ require (
 	github.com/go-sql-driver/mysql v1.6.0
 	github.com/jackc/pgx/v4 v4.13.0
 	github.com/joho/godotenv v1.4.0
-	github.com/valyala/bytebufferpool v1.0.0
 )
 
 require (

@@ -1,25 +1,6 @@
-create table posts (
-	id serial primary key,
-	old_id integer,
-
-	author integer,
-
-	post timestamp,
-	content text,
-	content_short text,
-	title varchar(200),
-	img varchar(255),
-	
-	tags_id int[] default '{}' 
-)
-
-create table tags (
-	id serial primary key,
-	name varchar(200),
-	slug varchar(200),
-	count integer,
-	taxonomy varchar(200)
-)
+drop table posts_tags;
+drop table tags;
+drop table posts;
 
 create table posts (
 	id bigserial primary key,
@@ -52,7 +33,3 @@ create table posts_tags (
     foreign key (post_id) references posts (id),
     foreign key (tag_id) references tags (id)
 );
-
-drop table posts_tags;
-drop table tags;
-drop table posts;

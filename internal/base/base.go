@@ -1,4 +1,4 @@
-package main
+package base
 
 import (
 	"context"
@@ -7,33 +7,11 @@ import (
 	"os"
 	"regexp"
 
+	"wp_to_postgres/internal/models"
+
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/joho/godotenv"
-	"github.com/valyala/bytebufferpool"
-)
-
-type (
-	Post struct {
-		ID 			 uint 	`json:"id"`
-		OldID        uint   `json:"oldId"`
-		Author       uint   `json:"author"`
-		Date         string `json:"date"`
-		Content      string `json:"content"`
-		ContentShort string `json:"ContentShort"`
-		Title        string `json:"title"`
-		Image        string `json:"image"`
-		TagsID       []uint `json:"tagsID"`
-
-		Views uint `json:"PostViewsCount"`
-	}
-
-	Tag struct {
-		ID    		uint64 	`json:"id"`
-		Name  		string 	`json:"name"`
-		Alias 		string 	`json:"alias"`
-		Type  		string 	`json:"type"`
-	}
 )
 
 var (
@@ -41,7 +19,7 @@ var (
 	reg = regexp.MustCompile("(\n)")
 )
 
-func startBase() (dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
+func StartBase() (dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
 	err := godotenv.Load()
 	errorShort(err)
 
@@ -54,56 +32,12 @@ func startBase() (dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
 	return
 }
 
-func delComments(post string) (content string) {
-	bb := bytebufferpool.Get()
-
-	indexes := re.FindAllStringIndex(post, -1)
-
-	start, end := 0, 0
-
-	for i := range indexes {
-		start = indexes[i][0]
-		bb.WriteString(post[end:start])
-		end = indexes[i][1]
-	}
-
-	content = bb.String()
-	bytebufferpool.Put(bb)
-
-	return
-}
-
-func delStrings(post string) (content string) {
-	bb := bytebufferpool.Get()
-
-	indexes := reg.FindAllStringIndex(post, -1)
-
-	start, end := 0, 0
-
-	for i := range indexes {
-		start = indexes[i][0]
-		bb.WriteString(post[end:start])
-		end = indexes[i][1]
-	}
-
-	content = bb.String()
-	bytebufferpool.Put(bb)
-
-	return
-}
-
-func oneStringSolutionByCmetallo(s string) (res string) {
-	res = re.ReplaceAllString(s, "")
-	res = reg.ReplaceAllString(res, "")
-	return
-}
-
-func allInfo(dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
+func AllInfo(dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
 	posts, err := dbMySql.Query("select id, post_author, post_title, post_date, post_content, post_excerpt from wp_posts where post_status = 'publish' and post_type = 'post' order by id;")
 	errorShort(err)
 
 	for posts.Next() {
-		post := new(Post)
+		post := new(models.Post)
 		err = posts.Scan(&post.OldID, &post.Author, &post.Title, &post.Date, &post.Content, &post.ContentShort)
 		errorShort(err)
 		post.Content = oneStringSolutionByCmetallo(post.Content)
@@ -137,7 +71,7 @@ func allInfo(dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
 		tagsTerm, err := dbMySql.Query("select name, slug, taxonomy from wp_terms left join wp_term_taxonomy on wp_terms.term_id = wp_term_taxonomy.term_id left join wp_term_relationships on wp_term_taxonomy.term_taxonomy_id = wp_term_relationships.term_taxonomy_id where object_id = ? and (taxonomy = 'category' or taxonomy = 'post_tag')", post.OldID)
 		errorShort(err)
 		for tagsTerm.Next() {
-			tag := Tag{}
+			tag := models.Tag{}
 			err = tagsTerm.Scan(&tag.Name, &tag.Alias, &tag.Type)
 			errorShort(err)
 
@@ -164,18 +98,14 @@ func allInfo(dbMySql *sql.DB, dbPostgres *pgxpool.Pool) {
 	posts.Close()
 }
 
+func oneStringSolutionByCmetallo(s string) (res string) {
+	res = re.ReplaceAllString(s, "")
+	res = reg.ReplaceAllString(res, "")
+	return
+}
+
 func errorShort(err error) {
 	if err != nil {
 		panic(err)
 	}
-}
-
-func main() {
-	//Подключаем базы
-	dbMySql, dbPostgres := startBase()
-	//Перенос основной инфы Post
-	allInfo(dbMySql, dbPostgres)
-	//Закрытие обращений к базе
-	dbPostgres.Close()
-	dbMySql.Close()
 }
